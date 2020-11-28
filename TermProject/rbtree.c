@@ -9,6 +9,13 @@
 
 #include <linux/rbtree_augmented.h>
 #include <linux/export.h>
+#include <linux/spinlock.h>
+
+
+int counter = 0;
+struct rw_semaphore counter_rwse;
+init_rwsem(&counter_rwse);
+
 
 /*
  * red-black trees properties:  https://en.wikipedia.org/wiki/Rbtree
@@ -95,7 +102,14 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 			 * first node, or we recursed at Case 1 below and
 			 * are no longer violating 4).
 			 */
+		
+			// down_write(&counter_rwse);
+			// counter++;
+			// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
+
 			rb_set_parent_color(node, NULL, RB_BLACK);
+			// up_write(&counter_rwse);
+		
 			break;
 		}
 
@@ -108,7 +122,12 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 		if(rb_is_black(parent))
 			break;
 
+		// down_write(&counter_rwse);
+                // counter++;
+                // printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
+
 		gparent = rb_red_parent(parent);
+		//up_write(&counter_rwse);
 
 		tmp = gparent->rb_right;
 		if (parent != tmp) {	/* parent == gparent->rb_left */
@@ -126,11 +145,19 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 				 * 4) does not allow this, we need to recurse
 				 * at g.
 				 */
+		
+				// down_write(&counter_rwse);
+                        	// counter++;
+                        	// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
+
 				rb_set_parent_color(tmp, gparent, RB_BLACK);
 				rb_set_parent_color(parent, gparent, RB_BLACK);
 				node = gparent;
 				parent = rb_parent(node);
 				rb_set_parent_color(node, parent, RB_RED);
+				
+				// up_write(&counter_rwse);
+				
 				continue;
 			}
 
@@ -150,6 +177,11 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 				 * continuation into Case 3 will fix that.
 				 */
 				tmp = node->rb_left;
+		
+				// down_write(&counter_rwse);
+				// counter++;
+                        	// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
+				
 				WRITE_ONCE(parent->rb_right, tmp);
 				WRITE_ONCE(node->rb_left, parent);
 				if (tmp)
@@ -157,6 +189,8 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 							    RB_BLACK);
 				rb_set_parent_color(parent, node, RB_RED);
 				augment_rotate(parent, node);
+				// up_write(&counter_rwse);
+
 				parent = node;
 				tmp = node->rb_right;
 			}
@@ -171,22 +205,36 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 			 *     /                 \
 			 *    n                   U
 			 */
+
+			// down_write(&counter_rwse);
+                        // counter++;
+                        // printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
+
 			WRITE_ONCE(gparent->rb_left, tmp); /* == parent->rb_right */
 			WRITE_ONCE(parent->rb_right, gparent);
 			if (tmp)
 				rb_set_parent_color(tmp, gparent, RB_BLACK);
 			__rb_rotate_set_parents(gparent, parent, root, RB_RED);
 			augment_rotate(gparent, parent);
+			// up_write(&counter_rwse);
+
 			break;
 		} else {
 			tmp = gparent->rb_left;
 			if (tmp && rb_is_red(tmp)) {
 				/* Case 1 - color flips */
+				
+				// down_write(&counter_rwse);
+                        	// counter++;
+                        	// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
+				
 				rb_set_parent_color(tmp, gparent, RB_BLACK);
 				rb_set_parent_color(parent, gparent, RB_BLACK);
 				node = gparent;
 				parent = rb_parent(node);
 				rb_set_parent_color(node, parent, RB_RED);
+				// up_write(&counter_rwse);
+				
 				continue;
 			}
 
@@ -194,6 +242,11 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 			if (node == tmp) {
 				/* Case 2 - right rotate at parent */
 				tmp = node->rb_right;
+
+				// down_write(&counter_rwse);
+                        	// counter++;
+                        	// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
+				
 				WRITE_ONCE(parent->rb_left, tmp);
 				WRITE_ONCE(node->rb_right, parent);
 				if (tmp)
@@ -201,17 +254,26 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 							    RB_BLACK);
 				rb_set_parent_color(parent, node, RB_RED);
 				augment_rotate(parent, node);
+				// up_write(&counter_rwse);
+				
 				parent = node;
 				tmp = node->rb_left;
 			}
 
 			/* Case 3 - left rotate at gparent */
+			
+			// down_write(&counter_rwse);
+                        // counter++;
+                        // printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
+
 			WRITE_ONCE(gparent->rb_right, tmp); /* == parent->rb_left */
 			WRITE_ONCE(parent->rb_left, gparent);
 			if (tmp)
 				rb_set_parent_color(tmp, gparent, RB_BLACK);
 			__rb_rotate_set_parents(gparent, parent, root, RB_RED);
 			augment_rotate(gparent, parent);
+			// up_write(&counter_rwse);
+			
 			break;
 		}
 	}
