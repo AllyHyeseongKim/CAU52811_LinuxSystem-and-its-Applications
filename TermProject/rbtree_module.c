@@ -73,21 +73,22 @@ int rb_delete(struct rb_root *mytree, int key)
 }
 
 struct rb_root my_tree = RB_ROOT;
-int num_nodes = 20;
+int num_nodes = 10;
 
 static int insert_function(void *data)
 {
 	/* rb_node create and insert */
 	int i = 0, ret;
-	while (!kthread_should_stop) {
+	while (!kthread_should_stop()) {
 		down_write(&counter_rwse);
 		counter++;
 		printk("%s, writer_counter: %d, pid: %u\n", __func__, counter, current->pid);
-		down_read(&counter_rwse);
-		counter++;
-		printk("%s, reader_counter: %d, pid: %u\n", __func__, counter, current->pid);
-        	for (;i<num_nodes;i++) {
-                	struct my_type *new = kmalloc(sizeof(struct my_type), GFP_KERNEL);
+		//down_read(&counter_rwse);
+		//counter++;
+		//printk("%s, reader_counter: %d, pid: %u\n", __func__, counter, current->pid);
+
+		for (;i<num_nodes;i++) {
+			struct my_type *new = kmalloc(sizeof(struct my_type), GFP_KERNEL);
                 	if(!new)
                 	        return NULL;
 
@@ -95,14 +96,15 @@ static int insert_function(void *data)
                 	new->key = i;
 
                 	ret = rb_insert(&my_tree, new);
-        	printk("[insert] %d\n", i);
+        	//	printk("[insert] %d\n", i);
 		}
+		printk("[Insert %d nodes] insert %d nodes in the reb black tree\n", num_nodes, i);
+
+		up_write(&counter_rwse);
+	 	//up_read(&counter_rwse);
+
+		msleep(500);
 	}
-	printk("[Insert %d nodes] insert %d nodes in the reb black tree\n", num_nodes, i);
-	up_write(&counter_rwse);
-	up_read(&counter_rwse);
-	msleep(500);
-	
 	do_exit(0);
 }
 
@@ -110,16 +112,27 @@ static int search_function(void *data)
 {
 	/* rb_tree find node */
 	int j = 0;
-	while (!kthread_should_stop) {
+	while (!kthread_should_stop()) {
+		//down_write(&counter_rwse);
+                //counter++;
+                //printk("%s, writer_counter: %d, pid: %u\n", __func__, counter, current->pid);
+                down_read(&counter_rwse);
+                counter++;
+                printk("%s, reader_counter: %d, pid: %u\n", __func__, counter, current->pid);
+
 		for (;j<num_nodes;j++) {
-        		struct my_type *find_node = rb_search(&my_tree, j);
+			struct my_type *find_node = rb_search(&my_tree, j);
         		if(!find_node) {
 				return NULL;
 			}
+		//	printk("[search] %d\n", j);
 		}
+		printk("[Search %d nodes] search %d nodes in the reb black tree\n", num_nodes, j);
+
+        	//up_write(&counter_rwse);
+        	up_read(&counter_rwse);
+        	msleep(500);
 	}
-	printk("[Search %d nodes] search %d nodes in the reb black tree\n", num_nodes, j);
-	
 	do_exit(0);
 }
 
@@ -127,11 +140,24 @@ static int delete_function(void *data)
 {
 	/* rb_tree delete node */
 	int k = 0;
-	for (k;k<num_nodes;k++) {	
-		rb_delete(&my_tree, k);
+	while (!kthread_should_stop()) {
+		down_write(&counter_rwse);
+                counter++;
+                printk("%s, writer_counter: %d, pid: %u\n", __func__, counter, current->pid);
+                //down_read(&counter_rwse);
+                //counter++;
+                //printk("%s, reader_counter: %d, pid: %u\n", __func__, counter, current->pid);
+
+		for (k;k<num_nodes;k++) {	
+			rb_delete(&my_tree, k);
+		//	printk("[delete] %d\n", k);
+		}
+		printk("[Delete %d nodes] delete %d nodes in the red black tree\n", num_nodes, k);
+
+        	up_write(&counter_rwse);
+        	//up_read(&counter_rwse);
+        	msleep(500);
 	}
-	printk("[Delete %d nodes] delete %d nodes in the red black tree\n", num_nodes, k);
-	
 	do_exit(0);
 }
 
@@ -143,7 +169,7 @@ void struct_example(void)
 	insert_thread = kthread_run(insert_function, NULL, "insert_function");
 	search_thread = kthread_run(search_function, NULL, "search_function");
 	delete_thread = kthread_run(delete_function, NULL, "delete_function");
-	
+
 	kthread_stop(insert_thread);
 	kthread_stop(search_thread);
 	kthread_stop(delete_thread);
@@ -151,13 +177,15 @@ void struct_example(void)
 
 int __init rbtree_module_init(void)
 {
+	printk("--------------------------Red Black Tree improvement--------------------------\n");
+	
 	counter = 0;
 	init_rwsem(&counter_rwse);
 
 	struct_example();
-	//struct_example();
-	//struct_example();
-
+	struct_example();
+	struct_example();
+	
 	printk("rbtree module init\n");
         return 0;
 }
@@ -165,6 +193,8 @@ int __init rbtree_module_init(void)
 void __exit rbtree_module_cleanup(void)
 {
 	printk("Bye Module\n");
+
+	printk("-------------------------------------Done-------------------------------------\n");
 }
 
 module_init(rbtree_module_init);
