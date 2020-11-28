@@ -9,6 +9,10 @@
 #include "rbtree.h"
 
 
+#define INSERT_THREAD_NUM 1
+#define SEARCH_THREAD_NUM 2
+#define DELETE_THREAD_NUM 3
+
 #define FALSE 0
 #define TRUE 1
 
@@ -75,8 +79,9 @@ int rb_delete(struct rb_root *mytree, int key)
 struct rb_root my_tree = RB_ROOT;
 int num_nodes = 10;
 
-static int insert_function(void *data)
+static int insert_function(void *_data)
 {
+	int* data = (int*)_data;
 	/* rb_node create and insert */
 	int i = 0, ret;
 	while (!kthread_should_stop()) {
@@ -93,23 +98,24 @@ static int insert_function(void *data)
                 	        return NULL;
 
                 	new->value = i*10;
-                	new->key = i;
+                	new->key = i+*data;
 
                 	ret = rb_insert(&my_tree, new);
         	//	printk("[insert] %d\n", i);
 		}
-		printk("[Insert %d nodes] insert %d nodes in the reb black tree\n", num_nodes, i);
+		printk("[Insert %d ~ %d nodes] insert %d nodes in the reb black tree\n", *data, num_nodes+*data, i);
 
 		up_write(&counter_rwse);
 	 	//up_read(&counter_rwse);
 
-		msleep(500);
+		//msleep(500);
 	}
 	do_exit(0);
 }
 
-static int search_function(void *data)
+static int search_function(void *_data)
 {
+	int* data = (int*)_data;
 	/* rb_tree find node */
 	int j = 0;
 	while (!kthread_should_stop()) {
@@ -121,23 +127,24 @@ static int search_function(void *data)
                 printk("%s, reader_counter: %d, pid: %u\n", __func__, counter, current->pid);
 
 		for (;j<num_nodes;j++) {
-			struct my_type *find_node = rb_search(&my_tree, j);
+			struct my_type *find_node = rb_search(&my_tree, j+*data);
         		if(!find_node) {
 				return NULL;
 			}
 		//	printk("[search] %d\n", j);
 		}
-		printk("[Search %d nodes] search %d nodes in the reb black tree\n", num_nodes, j);
+		printk("[Search %d ~ %d nodes] search %d nodes in the reb black tree\n", *data, num_nodes+*data, j);
 
         	//up_write(&counter_rwse);
         	up_read(&counter_rwse);
-        	msleep(500);
+        	//msleep(500);
 	}
 	do_exit(0);
 }
 
-static int delete_function(void *data)
+static int delete_function(void *_data)
 {
+	int* data = (int*)_data;
 	/* rb_tree delete node */
 	int k = 0;
 	while (!kthread_should_stop()) {
@@ -149,14 +156,14 @@ static int delete_function(void *data)
                 //printk("%s, reader_counter: %d, pid: %u\n", __func__, counter, current->pid);
 
 		for (k;k<num_nodes;k++) {	
-			rb_delete(&my_tree, k);
+			rb_delete(&my_tree, k+*data);
 		//	printk("[delete] %d\n", k);
 		}
-		printk("[Delete %d nodes] delete %d nodes in the red black tree\n", num_nodes, k);
+		printk("[Delete %d ~ %d nodes] delete %d nodes in the red black tree\n", *data, num_nodes+*data, k);
 
         	up_write(&counter_rwse);
         	//up_read(&counter_rwse);
-        	msleep(500);
+        	//msleep(500);
 	}
 	do_exit(0);
 }
@@ -164,15 +171,17 @@ static int delete_function(void *data)
 
 struct task_struct *insert_thread, *delete_thread, *search_thread;
 
-void struct_example(void)
+void struct_example(int num)
 {
-	insert_thread = kthread_run(insert_function, NULL, "insert_function");
-	search_thread = kthread_run(search_function, NULL, "search_function");
-	delete_thread = kthread_run(delete_function, NULL, "delete_function");
+	int* data = (int*)kmalloc(sizeof(int), GFP_KERNEL);
+	*data = num;
+	insert_thread = kthread_run(insert_function, (void*)data, "insert_function");
+	search_thread = kthread_run(search_function, (void*)data, "search_function");
+	delete_thread = kthread_run(delete_function, (void*)data, "delete_function");
 
-	kthread_stop(insert_thread);
-	kthread_stop(search_thread);
-	kthread_stop(delete_thread);
+	//kthread_stop(insert_thread);
+	//kthread_stop(search_thread);
+	//kthread_stop(delete_thread);
 }
 
 int __init rbtree_module_init(void)
@@ -182,9 +191,9 @@ int __init rbtree_module_init(void)
 	counter = 0;
 	init_rwsem(&counter_rwse);
 
-	struct_example();
-	struct_example();
-	struct_example();
+	struct_example(0);
+	struct_example(10);
+	struct_example(20);
 	
 	printk("rbtree module init\n");
         return 0;
