@@ -21,8 +21,8 @@
   linux/include/linux/rbtree_augmented.h
 */
 
-#ifndef _LINUX_RBTREE_AUGMENTED_H
-#define _LINUX_RBTREE_AUGMENTED_H
+#ifndef _LINUX_RBTREE_AUGMENTED_MUK_H
+#define _LINUX_RBTREE_AUGMENTED_MUK_H
 
 #include <linux/compiler.h>
 #include <linux/rbtree.h>
@@ -35,13 +35,13 @@
  *
  * See Documentation/rbtree.txt for documentation and samples.
  */
-
+/*
 struct rb_augment_callbacks {
 	void (*propagate)(struct rb_node *node, struct rb_node *stop);
 	void (*copy)(struct rb_node *old, struct rb_node *new);
 	void (*rotate)(struct rb_node *old, struct rb_node *new);
 };
-
+*/
 extern void __rb_insert_augmented(struct rb_node *node,
 				  struct rb_root *root,
 				  bool newleft, struct rb_node **leftmost,
@@ -56,13 +56,15 @@ extern void __rb_insert_augmented(struct rb_node *node,
  * a user provided function to update the augmented information on the
  * affected subtrees.
  */
+/*
 static inline void
 rb_insert_augmented(struct rb_node *node, struct rb_root *root,
 		    const struct rb_augment_callbacks *augment)
 {
 	__rb_insert_augmented(node, root, false, NULL, augment->rotate);
 }
-
+*/
+/* 
 static inline void
 rb_insert_augmented_cached(struct rb_node *node,
 			   struct rb_root_cached *root, bool newleft,
@@ -71,7 +73,7 @@ rb_insert_augmented_cached(struct rb_node *node,
 	__rb_insert_augmented(node, &root->rb_root,
 			      newleft, &root->rb_leftmost, augment->rotate);
 }
-
+*/
 #define RB_DECLARE_CALLBACKS(rbstatic, rbname, rbstruct, rbfield,	\
 			     rbtype, rbaugmented, rbcompute)		\
 static inline void							\
@@ -119,7 +121,7 @@ rbstatic const struct rb_augment_callbacks rbname = {			\
 #define rb_color(rb)       __rb_color((rb)->__rb_parent_color)
 #define rb_is_red(rb)      __rb_is_red((rb)->__rb_parent_color)
 #define rb_is_black(rb)    __rb_is_black((rb)->__rb_parent_color)
-
+/*
 static inline void rb_set_parent(struct rb_node *rb, struct rb_node *p)
 {
 	rb->__rb_parent_color = rb_color(rb) | (unsigned long)p;
@@ -143,7 +145,8 @@ __rb_change_child(struct rb_node *old, struct rb_node *new,
 	} else
 		WRITE_ONCE(root->rb_node, new);
 }
-
+*/
+/*
 static inline void
 __rb_change_child_rcu(struct rb_node *old, struct rb_node *new,
 		      struct rb_node *parent, struct rb_root *root)
@@ -156,12 +159,12 @@ __rb_change_child_rcu(struct rb_node *old, struct rb_node *new,
 	} else
 		rcu_assign_pointer(root->rb_node, new);
 }
-
+*/
 extern void __rb_erase_color(struct rb_node *parent, struct rb_root *root,
 	void (*augment_rotate)(struct rb_node *old, struct rb_node *new));
 
 static __always_inline struct rb_node *
-__rb_erase_augmented(struct rb_node *node, struct rb_root *root,
+__rb_erase_augmentedM(struct rb_node *node, struct rb_root *root,
 		     struct rb_node **leftmost,
 		     const struct rb_augment_callbacks *augment)
 {
@@ -299,7 +302,7 @@ __rb_erase_augmented(struct rb_node *node, struct rb_root *root,
 	up_write(&rwse);
 	return rebalance;
 }
-
+/*
 static __always_inline void
 rb_erase_augmented(struct rb_node *node, struct rb_root *root,
 		   const struct rb_augment_callbacks *augment)
@@ -308,8 +311,8 @@ rb_erase_augmented(struct rb_node *node, struct rb_root *root,
 							 NULL, augment);
 	if (rebalance)
 		__rb_erase_color(rebalance, root, augment->rotate);
-}
-
+}*/
+/*
 static __always_inline void
 rb_erase_augmented_cached(struct rb_node *node, struct rb_root_cached *root,
 			  const struct rb_augment_callbacks *augment)
@@ -320,5 +323,5 @@ rb_erase_augmented_cached(struct rb_node *node, struct rb_root_cached *root,
 	if (rebalance)
 		__rb_erase_color(rebalance, &root->rb_root, augment->rotate);
 }
-
+*/
 #endif	/* _LINUX_RBTREE_AUGMENTED_H */

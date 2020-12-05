@@ -1,6 +1,6 @@
 CONFIG_MODULE_SIG=n
-obj-m		:= testing.o
-testing-y := main.o rbtreeM.o
+obj-m		:= step3.o
+step3-y := main.o rbtreeM.o
 
 
 

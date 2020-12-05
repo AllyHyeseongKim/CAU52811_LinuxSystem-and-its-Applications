@@ -8,8 +8,8 @@
 #include <linux/time.h>
 #include "rbtreeM.h"
 
-#define NUM_OF_NODE 144000
-#define NUM_OF_THREAD 72
+#define NUM_OF_NODE 160000
+#define NUM_OF_THREAD 16
 
 
 #define BILLION 1000000000

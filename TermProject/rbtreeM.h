@@ -33,6 +33,7 @@ struct my_type {
 };
 
 extern unsigned long long UNDELETED;
+extern struct rw_semaphore rwse;
 extern int rb_insert(struct my_type *data);
 extern struct my_type *rb_search(int key);
 extern void rb_delete(int key);
