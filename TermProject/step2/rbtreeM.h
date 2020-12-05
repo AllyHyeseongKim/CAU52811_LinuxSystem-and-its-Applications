@@ -11,24 +11,36 @@
   See Documentation/core-api/rbtree.rst for documentation and samples.
 */
 
-#ifndef	_LINUX_RBTREE_H
-#define	_LINUX_RBTREE_H
+#ifndef	_LINUX_RBTREE_MUK_H
+#define	_LINUX_RBTREE_MUK_H
 
 #include <linux/kernel.h>
 #include <linux/stddef.h>
 #include <linux/rcupdate.h>
 
+#define FALSE 0
+#define TRUE 1
+
+//-----------modify---------------
+struct rw_semaphore rwse;
+struct rb_root tree = RB_ROOT;
+struct rb_root* tree_root = &tree;
+unsigned long long UNDELETED;
+//--------------------------------
+
+/*
 struct rb_node {
 	unsigned long  __rb_parent_color;
 	struct rb_node *rb_right;
 	struct rb_node *rb_left;
 } __attribute__((aligned(sizeof(long))));
-    /* The alignment might seem pointless, but allegedly CRIS needs it */
+*/    /* The alignment might seem pointless, but allegedly CRIS needs it */
 
+/*
 struct rb_root {
 	struct rb_node *rb_node;
 };
-
+*/
 #define rb_parent(r)   ((struct rb_node *)((r)->__rb_parent_color & ~3))
 
 #define RB_ROOT	(struct rb_root) { NULL, }
@@ -62,16 +74,19 @@ extern void rb_replace_node(struct rb_node *victim, struct rb_node *new,
 			    struct rb_root *root);
 extern void rb_replace_node_rcu(struct rb_node *victim, struct rb_node *new,
 				struct rb_root *root);
-
+/*
 static inline void rb_link_node(struct rb_node *node, struct rb_node *parent,
 				struct rb_node **rb_link)
 {
+	down_write(&rwse);
 	node->__rb_parent_color = (unsigned long)parent;
 	node->rb_left = node->rb_right = NULL;
 
 	*rb_link = node;
+	up_write(&rwse);
 }
-
+*/
+/*
 static inline void rb_link_node_rcu(struct rb_node *node, struct rb_node *parent,
 				    struct rb_node **rb_link)
 {
@@ -80,7 +95,7 @@ static inline void rb_link_node_rcu(struct rb_node *node, struct rb_node *parent
 
 	rcu_assign_pointer(*rb_link, node);
 }
-
+*/
 #define rb_entry_safe(ptr, type, member) \
 	({ typeof(ptr) ____ptr = (ptr); \
 	   ____ptr ? rb_entry(____ptr, type, member) : NULL; \
@@ -119,16 +134,17 @@ static inline void rb_link_node_rcu(struct rb_node *node, struct rb_node *parent
  * Furthermore, users that want to cache both pointers may
  * find it a bit asymmetric, but that's ok.
  */
+/*
 struct rb_root_cached {
 	struct rb_root rb_root;
 	struct rb_node *rb_leftmost;
 };
-
+*/
 #define RB_ROOT_CACHED (struct rb_root_cached) { {NULL, }, NULL }
 
 /* Same as rb_first(), but O(1) */
 #define rb_first_cached(root) (root)->rb_leftmost
-
+/*
 static inline void rb_insert_color_cached(struct rb_node *node,
 					  struct rb_root_cached *root,
 					  bool leftmost)
@@ -137,7 +153,8 @@ static inline void rb_insert_color_cached(struct rb_node *node,
 		root->rb_leftmost = node;
 	rb_insert_color(node, &root->rb_root);
 }
-
+*/
+/*
 static inline void rb_erase_cached(struct rb_node *node,
 				   struct rb_root_cached *root)
 {
@@ -145,7 +162,8 @@ static inline void rb_erase_cached(struct rb_node *node,
 		root->rb_leftmost = rb_next(node);
 	rb_erase(node, &root->rb_root);
 }
-
+*/
+/*
 static inline void rb_replace_node_cached(struct rb_node *victim,
 					  struct rb_node *new,
 					  struct rb_root_cached *root)
@@ -154,5 +172,88 @@ static inline void rb_replace_node_cached(struct rb_node *victim,
 		root->rb_leftmost = new;
 	rb_replace_node(victim, new, &root->rb_root);
 }
+*/
+
+//-----------modify---------------
+void initiate_rbtree(void)
+{
+	init_rwsem(&rwse);
+}
+//EXPORT_SYMBOL(initiate_rbtree);
+
+struct my_type {
+	struct rb_node node;
+	int key;
+	int value;
+};
+int rb_insert(struct my_type *data)
+{
+	struct rb_node **newNode = &(tree_root->rb_node), *parent = NULL;
+	/* Figure out "where" to put new node */
+        down_write(&rwse);
+	while (*newNode) {
+		struct my_type *thisC = container_of(*newNode, struct my_type, node);
+
+		parent = *newNode;
+		if (thisC->key > data->key)
+			newNode = &((*newNode)->rb_left);
+		else if (thisC->key < data->key)
+			newNode = &((*newNode)->rb_right);
+		else
+		{
+			return FALSE;
+		}
+	}
+	rb_link_node(&data->node, parent, newNode);		// relinking
+	rb_insert_color(&data->node, tree_root);		// recoloring & rebalancing
+	up_write(&rwse);
+	
+
+	return TRUE;
+}
+//EXPORT_SYMBOL(rb_insert);
+
+struct my_type *rb_search(int key)
+{
+	struct rb_node *node = tree_root->rb_node;
+
+        down_read(&rwse);
+	while (node) {
+		struct my_type *data = container_of(node, struct my_type, node);
+
+		if (data->key > key)
+			node = node->rb_left;
+		else if (data->key < key)
+			node = node->rb_right;
+		else
+		{
+        		up_read(&rwse);
+			return data;
+		}
+
+	}
+        up_read(&rwse);
+	return NULL;
+}
+//EXPORT_SYMBOL(rb_search);
+
+void rb_delete(int key)
+{
+	struct my_type *data;
+	data = rb_search(key);
+	down_write(&rwse);
+
+	if (data) {
+		rb_erase(&data->node, tree_root);
+		kfree(data);
+	}
+	else
+		__sync_fetch_and_add(&UNDELETED,1);
+	up_write(&rwse);
+	
+}
+//EXPORT_SYMBOL(rb_delete);
+
+//--------------------------------
 
 #endif	/* _LINUX_RBTREE_H */

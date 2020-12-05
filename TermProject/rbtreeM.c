@@ -1,24 +1,115 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
   Red Black Trees
   (C) 1999  Andrea Arcangeli <andrea@suse.de>
   (C) 2002  David Woodhouse <dwmw2@infradead.org>
   (C) 2012  Michel Lespinasse <walken@google.com>
+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program; if not, write to the Free Software
+  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
   linux/lib/rbtree.c
 */
 
 #include <linux/rbtree_augmented.h>
-#include <linux/export.h>
-#include <linux/spinlock.h>
+//#include <linux/export.h>
+#include "rbtreeM.h"
+#include "rbtree_augmentedM.h"
 
 
-int counter = 0;
-struct rw_semaphore counter_rwse;
-init_rwsem(&counter_rwse);
+//-----------modify---------------
+struct rw_semaphore rwse;
+struct rb_root tree = RB_ROOT;
+struct rb_root* tree_root = &tree;
+unsigned long long UNDELETED;
+
+
+void initiate_rbtree(void)
+{
+	init_rwsem(&rwse);
+}
+
+
+int rb_insert(struct my_type *data)
+{
+	struct rb_node **newNode = &(tree_root->rb_node), *parent = NULL;
+	/* Figure out "where" to put new node */
+        down_write(&rwse);
+	while (*newNode) {
+		struct my_type *thisC = container_of(*newNode, struct my_type, node);
+
+		parent = *newNode;
+		if (thisC->key > data->key)
+			newNode = &((*newNode)->rb_left);
+		else if (thisC->key < data->key)
+			newNode = &((*newNode)->rb_right);
+		else
+		{
+			return FALSE;
+		}
+	}
+	rb_link_node(&data->node, parent, newNode);		// relinking
+	rb_insert_color(&data->node, tree_root);		// recoloring & rebalancing
+	up_write(&rwse);
+	
+
+	return TRUE;
+}
+//EXPORT_SYMBOL(rb_insert);
+
+struct my_type *rb_search(int key)
+{
+	struct rb_node *node = tree_root->rb_node;
+
+        down_read(&rwse);
+	while (node) {
+		struct my_type *data = container_of(node, struct my_type, node);
+
+		if (data->key > key)
+			node = node->rb_left;
+		else if (data->key < key)
+			node = node->rb_right;
+		else
+		{
+        		up_read(&rwse);
+			return data;
+		}
+
+	}
+        up_read(&rwse);
+	return NULL;
+}
+//EXPORT_SYMBOL(rb_search);
+
+void rb_delete(int key)
+{
+	struct my_type *data;
+	data = rb_search(key);
+
+	if (data) {
+		rb_erase(&data->node, tree_root);
+		kfree(data);
+	}
+	else
+		__sync_fetch_and_add(&UNDELETED,1);
+	
+}
+
+//--------------------------------
 
 
 /*
- * red-black trees properties:  https://en.wikipedia.org/wiki/Rbtree
+ * red-black trees properties:  http://en.wikipedia.org/wiki/Rbtree
  *
  *  1) A node is either red or black
  *  2) The root is black
@@ -88,9 +179,13 @@ __rb_rotate_set_parents(struct rb_node *old, struct rb_node *new,
 
 static __always_inline void
 __rb_insert(struct rb_node *node, struct rb_root *root,
+	    bool newleft, struct rb_node **leftmost,
 	    void (*augment_rotate)(struct rb_node *old, struct rb_node *new))
 {
 	struct rb_node *parent = rb_red_parent(node), *gparent, *tmp;
+
+	if (newleft)
+		*leftmost = node;
 
 	while (true) {
 		/*
@@ -102,14 +197,7 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 			 * first node, or we recursed at Case 1 below and
 			 * are no longer violating 4).
 			 */
-		
-			// down_write(&counter_rwse);
-			// counter++;
-			// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
-
 			rb_set_parent_color(node, NULL, RB_BLACK);
-			// up_write(&counter_rwse);
-		
 			break;
 		}
 
@@ -122,12 +210,7 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 		if(rb_is_black(parent))
 			break;
 
-		// down_write(&counter_rwse);
-                // counter++;
-                // printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
-
 		gparent = rb_red_parent(parent);
-		//up_write(&counter_rwse);
 
 		tmp = gparent->rb_right;
 		if (parent != tmp) {	/* parent == gparent->rb_left */
@@ -145,19 +228,11 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 				 * 4) does not allow this, we need to recurse
 				 * at g.
 				 */
-		
-				// down_write(&counter_rwse);
-                        	// counter++;
-                        	// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
-
 				rb_set_parent_color(tmp, gparent, RB_BLACK);
 				rb_set_parent_color(parent, gparent, RB_BLACK);
 				node = gparent;
 				parent = rb_parent(node);
 				rb_set_parent_color(node, parent, RB_RED);
-				
-				// up_write(&counter_rwse);
-				
 				continue;
 			}
 
@@ -177,11 +252,6 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 				 * continuation into Case 3 will fix that.
 				 */
 				tmp = node->rb_left;
-		
-				// down_write(&counter_rwse);
-				// counter++;
-                        	// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
-				
 				WRITE_ONCE(parent->rb_right, tmp);
 				WRITE_ONCE(node->rb_left, parent);
 				if (tmp)
@@ -189,8 +259,6 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 							    RB_BLACK);
 				rb_set_parent_color(parent, node, RB_RED);
 				augment_rotate(parent, node);
-				// up_write(&counter_rwse);
-
 				parent = node;
 				tmp = node->rb_right;
 			}
@@ -205,36 +273,22 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 			 *     /                 \
 			 *    n                   U
 			 */
-
-			// down_write(&counter_rwse);
-                        // counter++;
-                        // printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
-
 			WRITE_ONCE(gparent->rb_left, tmp); /* == parent->rb_right */
 			WRITE_ONCE(parent->rb_right, gparent);
 			if (tmp)
 				rb_set_parent_color(tmp, gparent, RB_BLACK);
 			__rb_rotate_set_parents(gparent, parent, root, RB_RED);
 			augment_rotate(gparent, parent);
-			// up_write(&counter_rwse);
-
 			break;
 		} else {
 			tmp = gparent->rb_left;
 			if (tmp && rb_is_red(tmp)) {
 				/* Case 1 - color flips */
-				
-				// down_write(&counter_rwse);
-                        	// counter++;
-                        	// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
-				
 				rb_set_parent_color(tmp, gparent, RB_BLACK);
 				rb_set_parent_color(parent, gparent, RB_BLACK);
 				node = gparent;
 				parent = rb_parent(node);
 				rb_set_parent_color(node, parent, RB_RED);
-				// up_write(&counter_rwse);
-				
 				continue;
 			}
 
@@ -242,11 +296,6 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 			if (node == tmp) {
 				/* Case 2 - right rotate at parent */
 				tmp = node->rb_right;
-
-				// down_write(&counter_rwse);
-                        	// counter++;
-                        	// printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
-				
 				WRITE_ONCE(parent->rb_left, tmp);
 				WRITE_ONCE(node->rb_right, parent);
 				if (tmp)
@@ -254,26 +303,17 @@ __rb_insert(struct rb_node *node, struct rb_root *root,
 							    RB_BLACK);
 				rb_set_parent_color(parent, node, RB_RED);
 				augment_rotate(parent, node);
-				// up_write(&counter_rwse);
-				
 				parent = node;
 				tmp = node->rb_left;
 			}
 
 			/* Case 3 - left rotate at gparent */
-			
-			// down_write(&counter_rwse);
-                        // counter++;
-                        // printk("%s, writer counter: %d, pid: %u\n", __func__, counter, current->pid);
-
 			WRITE_ONCE(gparent->rb_right, tmp); /* == parent->rb_left */
 			WRITE_ONCE(parent->rb_left, gparent);
 			if (tmp)
 				rb_set_parent_color(tmp, gparent, RB_BLACK);
 			__rb_rotate_set_parents(gparent, parent, root, RB_RED);
 			augment_rotate(gparent, parent);
-			// up_write(&counter_rwse);
-			
 			break;
 		}
 	}
@@ -288,7 +328,6 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 	void (*augment_rotate)(struct rb_node *old, struct rb_node *new))
 {
 	struct rb_node *node = NULL, *sibling, *tmp1, *tmp2;
-
 	while (true) {
 		/*
 		 * Loop invariants:
@@ -299,6 +338,7 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 		 */
 		sibling = parent->rb_right;
 		if (node != sibling) {	/* node == parent->rb_left */
+			down_write(&rwse);	
 			if (rb_is_red(sibling)) {
 				/*
 				 * Case 1 - left rotate at parent
@@ -344,9 +384,12 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 					else {
 						node = parent;
 						parent = rb_parent(node);
-						if (parent)
+						if (parent){
+							up_write(&rwse);
 							continue;
+						}
 					}
+					up_write(&rwse);
 					break;
 				}
 				/*
@@ -408,39 +451,60 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 			__rb_rotate_set_parents(parent, sibling, root,
 						RB_BLACK);
 			augment_rotate(parent, sibling);
+			up_write(&rwse);
 			break;
 		} else {
+			down_read(&rwse);
 			sibling = parent->rb_left;
+			up_read(&rwse);
 			if (rb_is_red(sibling)) {
 				/* Case 1 - right rotate at parent */
+				down_read(&rwse);
 				tmp1 = sibling->rb_right;
+				up_read(&rwse);
+				down_write(&rwse);
 				WRITE_ONCE(parent->rb_left, tmp1);
 				WRITE_ONCE(sibling->rb_right, parent);
 				rb_set_parent_color(tmp1, parent, RB_BLACK);
 				__rb_rotate_set_parents(parent, sibling, root,
 							RB_RED);
 				augment_rotate(parent, sibling);
+				up_write(&rwse);
 				sibling = tmp1;
 			}
+			down_read(&rwse);
 			tmp1 = sibling->rb_left;
+			up_read(&rwse);
 			if (!tmp1 || rb_is_black(tmp1)) {
+				down_read(&rwse);
 				tmp2 = sibling->rb_right;
+				up_read(&rwse);
 				if (!tmp2 || rb_is_black(tmp2)) {
 					/* Case 2 - sibling color flip */
+					down_write(&rwse);
 					rb_set_parent_color(sibling, parent,
 							    RB_RED);
-					if (rb_is_red(parent))
+					up_write(&rwse);
+					if (rb_is_red(parent)){
+						down_write(&rwse);
 						rb_set_black(parent);
+						up_write(&rwse);
+					}
 					else {
 						node = parent;
+						down_read(&rwse);
 						parent = rb_parent(node);
+						up_read(&rwse);
 						if (parent)
 							continue;
 					}
 					break;
 				}
 				/* Case 3 - left rotate at sibling */
+				down_read(&rwse);
 				tmp1 = tmp2->rb_left;
+				up_read(&rwse);
+				down_write(&rwse);
 				WRITE_ONCE(sibling->rb_right, tmp1);
 				WRITE_ONCE(tmp2->rb_left, sibling);
 				WRITE_ONCE(parent->rb_left, tmp2);
@@ -448,10 +512,12 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 					rb_set_parent_color(tmp1, sibling,
 							    RB_BLACK);
 				augment_rotate(sibling, tmp2);
+				up_write(&rwse);
 				tmp1 = sibling;
 				sibling = tmp2;
 			}
 			/* Case 4 - right rotate at parent + color flips */
+			down_write(&rwse);
 			tmp2 = sibling->rb_right;
 			WRITE_ONCE(parent->rb_left, tmp2);
 			WRITE_ONCE(sibling->rb_right, parent);
@@ -461,6 +527,8 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 			__rb_rotate_set_parents(parent, sibling, root,
 						RB_BLACK);
 			augment_rotate(parent, sibling);
+			
+			up_write(&rwse);
 			break;
 		}
 	}
@@ -472,7 +540,7 @@ void __rb_erase_color(struct rb_node *parent, struct rb_root *root,
 {
 	____rb_erase_color(parent, root, augment_rotate);
 }
-EXPORT_SYMBOL(__rb_erase_color);
+//EXPORT_SYMBOL(__rb_erase_color);
 
 /*
  * Non-augmented rbtree manipulation functions.
@@ -493,18 +561,38 @@ static const struct rb_augment_callbacks dummy_callbacks = {
 
 void rb_insert_color(struct rb_node *node, struct rb_root *root)
 {
-	__rb_insert(node, root, dummy_rotate);
+	__rb_insert(node, root, false, NULL, dummy_rotate);
 }
-EXPORT_SYMBOL(rb_insert_color);
+//EXPORT_SYMBOL(rb_insert_color);
 
 void rb_erase(struct rb_node *node, struct rb_root *root)
 {
 	struct rb_node *rebalance;
-	rebalance = __rb_erase_augmented(node, root, &dummy_callbacks);
-	if (rebalance)
+	rebalance = __rb_erase_augmented(node, root,
+					 NULL, &dummy_callbacks);
+	if (rebalance){
 		____rb_erase_color(rebalance, root, dummy_rotate);
+	}
 }
-EXPORT_SYMBOL(rb_erase);
+//EXPORT_SYMBOL(rb_erase);
+
+void rb_insert_color_cached(struct rb_node *node,
+			    struct rb_root_cached *root, bool leftmost)
+{
+	__rb_insert(node, &root->rb_root, leftmost,
+		    &root->rb_leftmost, dummy_rotate);
+}
+//EXPORT_SYMBOL(rb_insert_color_cached);
+
+void rb_erase_cached(struct rb_node *node, struct rb_root_cached *root)
+{
+	struct rb_node *rebalance;
+	rebalance = __rb_erase_augmented(node, &root->rb_root,
+					 &root->rb_leftmost, &dummy_callbacks);
+	if (rebalance)
+		____rb_erase_color(rebalance, &root->rb_root, dummy_rotate);
+}
+//EXPORT_SYMBOL(rb_erase_cached);
 
 /*
  * Augmented rbtree manipulation functions.
@@ -514,11 +602,12 @@ EXPORT_SYMBOL(rb_erase);
  */
 
 void __rb_insert_augmented(struct rb_node *node, struct rb_root *root,
+			   bool newleft, struct rb_node **leftmost,
 	void (*augment_rotate)(struct rb_node *old, struct rb_node *new))
 {
-	__rb_insert(node, root, augment_rotate);
+	__rb_insert(node, root, newleft, leftmost, augment_rotate);
 }
-EXPORT_SYMBOL(__rb_insert_augmented);
+//EXPORT_SYMBOL(__rb_insert_augmented);
 
 /*
  * This function returns the first node (in sort order) of the tree.
@@ -534,7 +623,7 @@ struct rb_node *rb_first(const struct rb_root *root)
 		n = n->rb_left;
 	return n;
 }
-EXPORT_SYMBOL(rb_first);
+//EXPORT_SYMBOL(rb_first);
 
 struct rb_node *rb_last(const struct rb_root *root)
 {
@@ -547,7 +636,7 @@ struct rb_node *rb_last(const struct rb_root *root)
 		n = n->rb_right;
 	return n;
 }
-EXPORT_SYMBOL(rb_last);
+//EXPORT_SYMBOL(rb_last);
 
 struct rb_node *rb_next(const struct rb_node *node)
 {
@@ -563,7 +652,7 @@ struct rb_node *rb_next(const struct rb_node *node)
 	if (node->rb_right) {
 		node = node->rb_right;
 		while (node->rb_left)
-			node = node->rb_left;
+			node=node->rb_left;
 		return (struct rb_node *)node;
 	}
 
@@ -579,7 +668,7 @@ struct rb_node *rb_next(const struct rb_node *node)
 
 	return parent;
 }
-EXPORT_SYMBOL(rb_next);
+//EXPORT_SYMBOL(rb_next);
 
 struct rb_node *rb_prev(const struct rb_node *node)
 {
@@ -595,7 +684,7 @@ struct rb_node *rb_prev(const struct rb_node *node)
 	if (node->rb_left) {
 		node = node->rb_left;
 		while (node->rb_right)
-			node = node->rb_right;
+			node=node->rb_right;
 		return (struct rb_node *)node;
 	}
 
@@ -608,7 +697,7 @@ struct rb_node *rb_prev(const struct rb_node *node)
 
 	return parent;
 }
-EXPORT_SYMBOL(rb_prev);
+//EXPORT_SYMBOL(rb_prev);
 
 void rb_replace_node(struct rb_node *victim, struct rb_node *new,
 		     struct rb_root *root)
@@ -625,7 +714,17 @@ void rb_replace_node(struct rb_node *victim, struct rb_node *new,
 		rb_set_parent(victim->rb_right, new);
 	__rb_change_child(victim, new, parent, root);
 }
-EXPORT_SYMBOL(rb_replace_node);
+//EXPORT_SYMBOL(rb_replace_node);
+
+void rb_replace_node_cached(struct rb_node *victim, struct rb_node *new,
+			    struct rb_root_cached *root)
+{
+	rb_replace_node(victim, new, &root->rb_root);
+
+	if (root->rb_leftmost == victim)
+		root->rb_leftmost = new;
+}
+//EXPORT_SYMBOL(rb_replace_node_cached);
 
 void rb_replace_node_rcu(struct rb_node *victim, struct rb_node *new,
 			 struct rb_root *root)
@@ -647,7 +746,7 @@ void rb_replace_node_rcu(struct rb_node *victim, struct rb_node *new,
 	 */
 	__rb_change_child_rcu(victim, new, parent, root);
 }
-EXPORT_SYMBOL(rb_replace_node_rcu);
+//EXPORT_SYMBOL(rb_replace_node_rcu);
 
 static struct rb_node *rb_left_deepest_node(const struct rb_node *node)
 {
@@ -678,7 +777,7 @@ struct rb_node *rb_next_postorder(const struct rb_node *node)
 		 * should be next */
 		return (struct rb_node *)parent;
 }
-EXPORT_SYMBOL(rb_next_postorder);
+//EXPORT_SYMBOL(rb_next_postorder);
 
 struct rb_node *rb_first_postorder(const struct rb_root *root)
 {
@@ -687,4 +786,4 @@ struct rb_node *rb_first_postorder(const struct rb_root *root)
 
 	return rb_left_deepest_node(root->rb_node);
 }
-EXPORT_SYMBOL(rb_first_postorder);
+//EXPORT_SYMBOL(rb_first_postorder);

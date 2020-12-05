@@ -1,8 +1,4 @@
-CONFIG_MODULE_SIG=n
-obj-m		:= testing.o
-testing-y := main.o rbtreeM.o
-
-
+obj-m		:= rbtree.o
 
 KERNEL_DIR	:= /lib/modules/$(shell uname -r)/build
 PWD 		:= $(shell pwd)

@@ -7,10 +7,10 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>		// for kmalloc
 #include <linux/time.h>
-#include "rbtree.h"
+#include "rbtreeM.h"
 
-#define NUM_OF_NODE 100000
-#define NUM_OF_THREAD 8
+#define NUM_OF_NODE 160000
+#define NUM_OF_THREAD 16
 
 #define INSERT_THREAD_NUM 1
 #define SEARCH_THREAD_NUM 2
@@ -32,7 +32,7 @@ void calclock(struct timespec *myclock,unsigned long long *total_time, unsigned 
 
 	}else{
 		temp=myclock[1].tv_sec - myclock[0].tv_sec -1;
-		temp_n= BILLON + myclock[1].tv_nsec - myclock[0].tv_nsec;
+		temp_n= BILLION + myclock[1].tv_nsec - myclock[0].tv_nsec;
 		timedelay = temp*BILLION+temp_n;
 	}
 	__sync_fetch_and_add(total_time,timedelay);
@@ -120,7 +120,7 @@ static int insert_function(void *_data)
 	for (;i<chunkSize;i++) {
 		struct my_type *new = kmalloc(sizeof(struct my_type), GFP_KERNEL);
                	if(!new)
-               	        return NULL;
+               	        return -1;
                	new->value = i*10;
                	new->key = i+(*data)*chunkSize;
 
@@ -148,7 +148,7 @@ static int search_function(void *_data)
 	for (;j<chunkSize;j++) {
 		struct my_type *find_node = rb_search(&my_tree, j+(*data)*chunkSize);
         	if(!find_node) {
-			return NULL;
+			return -1;
 		}
 	}
 
@@ -230,7 +230,7 @@ void __exit rbtree_module_cleanup(void)
 	printk("-------------------------------------Done-------------------------------------\n");
 }
 
+MODULE_LICENSE("GPL");
 module_init(rbtree_module_init);
 module_exit(rbtree_module_cleanup);
 
-MODULE_LICENSE("GPL");
