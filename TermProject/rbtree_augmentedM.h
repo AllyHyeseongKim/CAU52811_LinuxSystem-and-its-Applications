@@ -25,7 +25,8 @@
 #define _LINUX_RBTREE_AUGMENTED_MUK_H
 
 #include <linux/compiler.h>
-#include <linux/rbtree.h>
+//#include <linux/rbtree.h>
+#include "rbtreeM.h"
 #include <linux/rcupdate.h>
 
 /*
@@ -42,10 +43,12 @@ struct rb_augment_callbacks {
 	void (*rotate)(struct rb_node *old, struct rb_node *new);
 };
 */
+/*
 extern void __rb_insert_augmented(struct rb_node *node,
 				  struct rb_root *root,
 				  bool newleft, struct rb_node **leftmost,
 	void (*augment_rotate)(struct rb_node *old, struct rb_node *new));
+	*/
 /*
  * Fixup the rbtree and update the augmented information when rebalancing.
  *
@@ -180,7 +183,6 @@ __rb_erase_augmentedM(struct rb_node *node, struct rb_root *root,
 	}
 
 	if (!tmp) {
-		down_write(&rwse);
 		/*
 		 * Case 1: node to erase has no more than 1 child (easy!)
 		 *
@@ -188,21 +190,27 @@ __rb_erase_augmentedM(struct rb_node *node, struct rb_root *root,
 		 * and node must be black due to 4). We adjust colors locally
 		 * so as to bypass __rb_erase_color() later on.
 		 */
+		down_read(&rwse);
 		pc = node->__rb_parent_color;
 		parent = __rb_parent(pc);
+		up_read(&rwse);
+		down_write(&rwse);
 		__rb_change_child(node, child, parent, root);
 		if (child) {
 			child->__rb_parent_color = pc;
 			rebalance = NULL;
-		} else
+		} else{
 			rebalance = __rb_is_black(pc) ? parent : NULL;
+		}
 		tmp = parent;
 		up_write(&rwse);
 	} else if (!child) {
-		down_write(&rwse);
 		/* Still case 1, but this time the child is node->rb_left */
+		down_read(&rwse);
 		tmp->__rb_parent_color = pc = node->__rb_parent_color;
 		parent = __rb_parent(pc);
+		up_read(&rwse);
+		down_write(&rwse);
 		__rb_change_child(node, tmp, parent, root);
 		rebalance = NULL;
 		tmp = parent;

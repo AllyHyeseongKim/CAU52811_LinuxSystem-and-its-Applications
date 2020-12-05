@@ -9,7 +9,7 @@
 #include "rbtreeM.h"
 
 #define NUM_OF_NODE 160000
-#define NUM_OF_THREAD 16
+#define NUM_OF_THREAD 4
 
 
 #define BILLION 1000000000

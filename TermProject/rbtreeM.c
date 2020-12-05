@@ -336,9 +336,10 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 		 * - All leaf paths going through parent and node have a
 		 *   black node count that is 1 lower than other leaf paths.
 		 */
+		down_read(&rwse);
 		sibling = parent->rb_right;
+		up_read(&rwse);
 		if (node != sibling) {	/* node == parent->rb_left */
-			down_write(&rwse);	
 			if (rb_is_red(sibling)) {
 				/*
 				 * Case 1 - left rotate at parent
@@ -349,7 +350,11 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 				 *      / \         / \
 				 *     Sl  Sr      N   Sl
 				 */
+				down_read(&rwse);
 				tmp1 = sibling->rb_left;
+				up_read(&rwse);
+
+				down_write(&rwse);
 				WRITE_ONCE(parent->rb_right, tmp1);
 				WRITE_ONCE(sibling->rb_left, parent);
 				rb_set_parent_color(tmp1, parent, RB_BLACK);
@@ -357,10 +362,15 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 							RB_RED);
 				augment_rotate(parent, sibling);
 				sibling = tmp1;
+				up_write(&rwse);
 			}
+			down_read(&rwse);
 			tmp1 = sibling->rb_right;
+			up_read(&rwse);
 			if (!tmp1 || rb_is_black(tmp1)) {
+				down_read(&rwse);
 				tmp2 = sibling->rb_left;
+				up_read(&rwse);
 				if (!tmp2 || rb_is_black(tmp2)) {
 					/*
 					 * Case 2 - sibling color flip
@@ -377,19 +387,24 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 					 * if it was red, or by recursing at p.
 					 * p is red when coming from Case 1.
 					 */
+				down_write(&rwse);
 					rb_set_parent_color(sibling, parent,
 							    RB_RED);
-					if (rb_is_red(parent))
+				up_write(&rwse);
+					if (rb_is_red(parent)){
+				down_write(&rwse);
 						rb_set_black(parent);
+				up_write(&rwse);}
 					else {
+
+						down_read(&rwse);
 						node = parent;
 						parent = rb_parent(node);
+						up_read(&rwse);
 						if (parent){
-							up_write(&rwse);
 							continue;
 						}
 					}
-					up_write(&rwse);
 					break;
 				}
 				/*
@@ -419,7 +434,11 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 				 *         \
 				 *          Sr
 				 */
+				
+				down_read(&rwse);
 				tmp1 = tmp2->rb_right;
+				up_read(&rwse);
+				down_write(&rwse);
 				WRITE_ONCE(sibling->rb_left, tmp1);
 				WRITE_ONCE(tmp2->rb_right, sibling);
 				WRITE_ONCE(parent->rb_right, tmp2);
@@ -429,6 +448,7 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 				augment_rotate(sibling, tmp2);
 				tmp1 = sibling;
 				sibling = tmp2;
+				up_write(&rwse);
 			}
 			/*
 			 * Case 4 - left rotate at parent + color flips
@@ -442,9 +462,13 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 			 *        / \         / \
 			 *      (sl) sr      N  (sl)
 			 */
+
+			down_read(&rwse);
 			tmp2 = sibling->rb_left;
+			up_read(&rwse);
 			WRITE_ONCE(parent->rb_right, tmp2);
 			WRITE_ONCE(sibling->rb_left, parent);
+			down_write(&rwse);
 			rb_set_parent_color(tmp1, sibling, RB_BLACK);
 			if (tmp2)
 				rb_set_parent(tmp2, parent);
@@ -517,10 +541,12 @@ ____rb_erase_color(struct rb_node *parent, struct rb_root *root,
 				sibling = tmp2;
 			}
 			/* Case 4 - right rotate at parent + color flips */
-			down_write(&rwse);
+			down_read(&rwse);
 			tmp2 = sibling->rb_right;
+			up_read(&rwse);
 			WRITE_ONCE(parent->rb_left, tmp2);
 			WRITE_ONCE(sibling->rb_right, parent);
+			down_write(&rwse);
 			rb_set_parent_color(tmp1, sibling, RB_BLACK);
 			if (tmp2)
 				rb_set_parent(tmp2, parent);
@@ -575,15 +601,15 @@ void rb_erase(struct rb_node *node, struct rb_root *root)
 	}
 }
 //EXPORT_SYMBOL(rb_erase);
-
+/*
 void rb_insert_color_cached(struct rb_node *node,
 			    struct rb_root_cached *root, bool leftmost)
 {
 	__rb_insert(node, &root->rb_root, leftmost,
 		    &root->rb_leftmost, dummy_rotate);
-}
+}*/
 //EXPORT_SYMBOL(rb_insert_color_cached);
-
+/*
 void rb_erase_cached(struct rb_node *node, struct rb_root_cached *root)
 {
 	struct rb_node *rebalance;
@@ -591,7 +617,7 @@ void rb_erase_cached(struct rb_node *node, struct rb_root_cached *root)
 					 &root->rb_leftmost, &dummy_callbacks);
 	if (rebalance)
 		____rb_erase_color(rebalance, &root->rb_root, dummy_rotate);
-}
+}*/
 //EXPORT_SYMBOL(rb_erase_cached);
 
 /*
@@ -600,13 +626,13 @@ void rb_erase_cached(struct rb_node *node, struct rb_root_cached *root)
  * This instantiates the same __always_inline functions as in the non-augmented
  * case, but this time with user-defined callbacks.
  */
-
+/*
 void __rb_insert_augmented(struct rb_node *node, struct rb_root *root,
 			   bool newleft, struct rb_node **leftmost,
 	void (*augment_rotate)(struct rb_node *old, struct rb_node *new))
 {
 	__rb_insert(node, root, newleft, leftmost, augment_rotate);
-}
+}*/
 //EXPORT_SYMBOL(__rb_insert_augmented);
 
 /*
@@ -715,7 +741,7 @@ void rb_replace_node(struct rb_node *victim, struct rb_node *new,
 	__rb_change_child(victim, new, parent, root);
 }
 //EXPORT_SYMBOL(rb_replace_node);
-
+/*
 void rb_replace_node_cached(struct rb_node *victim, struct rb_node *new,
 			    struct rb_root_cached *root)
 {
@@ -723,7 +749,7 @@ void rb_replace_node_cached(struct rb_node *victim, struct rb_node *new,
 
 	if (root->rb_leftmost == victim)
 		root->rb_leftmost = new;
-}
+}*/
 //EXPORT_SYMBOL(rb_replace_node_cached);
 
 void rb_replace_node_rcu(struct rb_node *victim, struct rb_node *new,
